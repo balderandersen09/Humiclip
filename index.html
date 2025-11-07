@@ -34,7 +34,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-import { getDatabase, ref, onValue, set, get } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
 // Firebase config
 const firebaseConfig = {
@@ -115,7 +115,7 @@ document.getElementById("applyBtn").addEventListener("click", () => {
   }
 });
 
-// Function to update from Firebase snapshot
+// Handle Firebase data
 function handleData(data) {
   if (!data || data.currentHumidity === undefined || data.wetHumidity === undefined || data.timestamp === undefined || data.dryHumidity === undefined) return;
 
@@ -126,19 +126,18 @@ function handleData(data) {
 
   document.getElementById("dryHumidityInput").value = dryHumidity;
 
-  // Now elapsed = timestamp directly
   updateProgress(lastCurrentHumidity, lastCurrentHumidityTimestamp);
 }
 
 // Initial load
-get(dataRef).then((snapshot) => {
-  handleData(snapshot.val());
-});
+get(dataRef).then(snapshot => handleData(snapshot.val()));
 
-// Listen to real-time changes
-onValue(dataRef, (snapshot) => {
-  handleData(snapshot.val());
-});
+// Poll Firebase every 15 minutes
+const POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+setInterval(() => {
+  get(dataRef).then(snapshot => handleData(snapshot.val()));
+}, POLL_INTERVAL_MS);
+
 </script>
 
 </body>
