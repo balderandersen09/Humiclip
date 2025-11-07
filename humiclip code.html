@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clothes Drying Progress</title>
+<style>
+  body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; background: #f5f5f5; }
+  h1 { margin-bottom: 20px; }
+  .progress-container { width: 80%; max-width: 400px; height: 30px; background: #ddd; border-radius: 10px; margin: 20px auto; overflow: hidden; }
+  .progress-bar { height: 100%; width: 0%; background: #4CAF50; text-align: center; color: white; line-height: 30px; transition: width 0.5s ease; }
+  .data { margin-top: 20px; font-size: 1.1em; }
+  input { width: 60px; text-align: center; }
+  button { padding: 5px 10px; margin-left: 5px; }
+</style>
+</head>
+<body>
+
+<h1>Clothes Drying Progress</h1>
+
+<div>
+  <label>Target Dry Humidity: <input type="number" id="dryHumidityInput" min="0" max="100"></label>
+  <button id="applyBtn">Apply</button>
+</div>
+
+<div class="progress-container">
+  <div class="progress-bar" id="progress-bar">0%</div>
+</div>
+
+<div class="data">
+  <p>Time Elapsed: <span id="timeElapsed">--</span></p>
+  <p>Estimated Time Left: <span id="timeLeft">--</span></p>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+import { getDatabase, ref, onValue, set, get } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+
+// Firebase config
+const firebaseConfig = {
+  apiKey: "AIzaSyD2c-UOFZ0T6CfCxk1ZYyER6taMtKQnrK4",
+  authDomain: "humiclamp.firebaseapp.com",
+  databaseURL: "https://humiclamp-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "humiclamp",
+  storageBucket: "humiclamp.firebasestorage.app",
+  messagingSenderId: "31653540479",
+  appId: "1:31653540479:web:56ebc4fcb0695fc111054a",
+  measurementId: "G-GH88KLQ3LW"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const dataRef = ref(db, "/"); // root
+
+let wetHumidity = null;
+let dryHumidity = null;
+let lastCurrentHumidity = null;
+let lastCurrentHumidityTimestamp = null; // seconds
+
+// Format seconds to Xd Yh Zm Ws
+function formatTimeSec(seconds) {
+  seconds = Math.floor(seconds);
+  const days = Math.floor(seconds / 86400);
+  seconds %= 86400;
+  const h = Math.floor(seconds / 3600);
+  seconds %= 3600;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  let str = "";
+  if (days > 0) str += `${days}d `;
+  if (h > 0 || days > 0) str += `${h}h `;
+  str += `${m}m ${s}s`;
+  return str;
+}
+
+// Update progress bar and times
+function updateProgress(current, elapsedSec) {
+  if (wetHumidity === null || dryHumidity === null) return;
+
+  const wet = parseFloat(wetHumidity);
+  const dry = parseFloat(dryHumidity);
+  const curr = parseFloat(current);
+
+  const clamped = Math.min(Math.max(curr, dry), wet);
+
+  let progress = ((wet - clamped) / (wet - dry)) * 100;
+  progress = Math.min(Math.max(progress, 0), 100);
+
+  const progressBar = document.getElementById("progress-bar");
+  progressBar.style.width = progress + "%";
+  progressBar.textContent = progress.toFixed(1) + "%";
+
+  let remaining = "--";
+  if (progress > 0 && progress < 100) {
+    const predictedTotalSec = elapsedSec / (progress / 100);
+    const remainingSec = Math.max(predictedTotalSec - elapsedSec, 0);
+    remaining = formatTimeSec(remainingSec);
+  } else if (progress >= 100) {
+    remaining = "Done!";
+  }
+
+  document.getElementById("timeElapsed").textContent = formatTimeSec(elapsedSec);
+  document.getElementById("timeLeft").textContent = remaining;
+}
+
+// Apply button updates Firebase dryHumidity only
+document.getElementById("applyBtn").addEventListener("click", () => {
+  const val = parseFloat(document.getElementById("dryHumidityInput").value);
+  if (!isNaN(val)) {
+    set(ref(db, "dryHumidity"), val);
+    dryHumidity = val;
+    if (lastCurrentHumidity !== null && lastCurrentHumidityTimestamp !== null) {
+      updateProgress(lastCurrentHumidity, lastCurrentHumidityTimestamp);
+    }
+  }
+});
+
+// Function to update from Firebase snapshot
+function handleData(data) {
+  if (!data || data.currentHumidity === undefined || data.wetHumidity === undefined || data.timestamp === undefined || data.dryHumidity === undefined) return;
+
+  lastCurrentHumidity = parseFloat(data.currentHumidity);
+  lastCurrentHumidityTimestamp = parseInt(data.timestamp, 10); // seconds
+  wetHumidity = parseFloat(data.wetHumidity);
+  dryHumidity = parseFloat(data.dryHumidity);
+
+  document.getElementById("dryHumidityInput").value = dryHumidity;
+
+  // Now elapsed = timestamp directly
+  updateProgress(lastCurrentHumidity, lastCurrentHumidityTimestamp);
+}
+
+// Initial load
+get(dataRef).then((snapshot) => {
+  handleData(snapshot.val());
+});
+
+// Listen to real-time changes
+onValue(dataRef, (snapshot) => {
+  handleData(snapshot.val());
+});
+</script>
+
+</body>
+</html>
