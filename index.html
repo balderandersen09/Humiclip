@@ -10,8 +10,6 @@
   .progress-container { width: 80%; max-width: 400px; height: 30px; background: #ddd; border-radius: 10px; margin: 20px auto; overflow: hidden; }
   .progress-bar { height: 100%; width: 0%; background: #4CAF50; text-align: center; color: white; line-height: 30px; transition: width 0.5s ease; }
   .data { margin-top: 20px; font-size: 1.1em; }
-  input { width: 60px; text-align: center; }
-  button { padding: 5px 10px; margin-left: 5px; }
 </style>
 </head>
 <body>
@@ -35,8 +33,9 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
 import { getDatabase, ref, onValue, set, get } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-messaging.js";
 
-// Firebase config
+// Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyD2c-UOFZ0T6CfCxk1ZYyER6taMtKQnrK4",
   authDomain: "humiclamp.firebaseapp.com",
@@ -50,117 +49,114 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
-const dataRef = ref(db, "/"); // root
+const dataRef = ref(db, "/");
+
+// --- PUSH ENABLE ---
+const messaging = getMessaging(app);
+
+async function enablePush() {
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") return;
+
+  const token = await getToken(messaging, {
+    vapidKey: "YOUR_PUBLIC_VAPID_KEY_HERE"
+  });
+
+  console.log("Push Token:", token);
+  set(ref(db, "pushToken"), token);
+}
+
+enablePush();
+
+onMessage(messaging, payload => {
+  console.log("Message received:", payload);
+});
+
+// ----------------- LOGIC -------------------
 
 let wetHumidity = null;
 let dryHumidity = null;
 let lastCurrentHumidity = null;
-let lastCurrentHumidityTimestamp = null; // milliseconds
-let notified = false; // notification flag
+let startTimeMs = null;
 
-// Format milliseconds to Xd Yh Zm Ws
+let notifiedDone = false;
+
 function formatTimeMs(ms) {
-  let seconds = Math.floor(ms / 1000);
-  const days = Math.floor(seconds / 86400);
-  seconds %= 86400;
-  const h = Math.floor(seconds / 3600);
-  seconds %= 3600;
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
+  let s = Math.floor(ms / 1000);
+  const days = Math.floor(s / 86400);
+  s %= 86400;
+  const h = Math.floor(s / 3600);
+  s %= 3600;
+  const m = Math.floor(s / 60);
+  s = s % 60;
+
   let str = "";
-  if (days > 0) str += `${days}d `;
-  if (h > 0 || days > 0) str += `${h}h `;
+  if (days) str += `${days}d `;
+  if (h || days) str += `${h}h `;
   str += `${m}m ${s}s`;
   return str;
 }
 
-// Request browser notification permission once
-if ("Notification" in window) {
-  Notification.requestPermission().then(permission => {
-    if (permission !== "granted") console.log("Notifications not allowed");
-  });
-}
-
-// Update progress bar and times
-function updateProgress(current, elapsedMs) {
+function updateProgress(current, timestampMs) {
   if (wetHumidity === null || dryHumidity === null) return;
 
   const wet = parseFloat(wetHumidity);
   const dry = parseFloat(dryHumidity);
   const curr = parseFloat(current);
 
-  // Clamp current between wet and dry
-  const clamped = Math.min(Math.max(curr, wet), dry);
+  const clamped = Math.max(Math.min(curr, dry), wet);
 
-  // Correct progress formula
-  let progress = ((clamped - wet) / (dry - wet)) * 100;
+  let progress = ((wet - clamped) / (wet - dry)) * 100;
   progress = Math.min(Math.max(progress, 0), 100);
 
-  const progressBar = document.getElementById("progress-bar");
-  progressBar.style.width = progress + "%";
-  progressBar.textContent = progress.toFixed(1) + "%";
+  const bar = document.getElementById("progress-bar");
+  bar.style.width = progress + "%";
+  bar.textContent = progress.toFixed(1) + "%";
+
+  const elapsed = timestampMs - startTimeMs;
 
   let remaining = "--";
   if (progress > 0 && progress < 100) {
-    const predictedTotalMs = elapsedMs / (progress / 100);
-    const remainingMs = Math.max(predictedTotalMs - elapsedMs, 0);
-    remaining = formatTimeMs(remainingMs);
+    const total = elapsed / (progress / 100);
+    remaining = formatTimeMs(total - elapsed);
   } else if (progress >= 100) {
     remaining = "Done!";
-    // Trigger notification once
-    if (Notification.permission === "granted" && !notified) {
-      new Notification("Clothes Drying Complete!", {
-        body: "Your clothes have reached the target humidity.",
-        icon: "/icon-192.png"
+
+    if (!notifiedDone) {
+      new Notification("Clothes are dry 🎉", {
+        body: "They reached your target humidity."
       });
-      notified = true;
+      notifiedDone = true;
     }
-  } else {
-    // reset notified if progress drops below 100%
-    notified = false;
   }
 
-  document.getElementById("timeElapsed").textContent = formatTimeMs(elapsedMs);
+  document.getElementById("timeElapsed").textContent = formatTimeMs(elapsed);
   document.getElementById("timeLeft").textContent = remaining;
 }
 
-// Apply button updates Firebase dryHumidity only
 document.getElementById("applyBtn").addEventListener("click", () => {
   const val = parseFloat(document.getElementById("dryHumidityInput").value);
   if (!isNaN(val)) {
     set(ref(db, "dryHumidity"), val);
     dryHumidity = val;
-    if (lastCurrentHumidity !== null && lastCurrentHumidityTimestamp !== null) {
-      updateProgress(lastCurrentHumidity, lastCurrentHumidityTimestamp);
-    }
   }
 });
 
-// Function to update from Firebase snapshot
-function handleData(data) {
-  if (!data || data.currentHumidity === undefined || data.wetHumidity === undefined || data.timestamp === undefined || data.dryHumidity === undefined) return;
+function handleData(d) {
+  if (!d) return;
 
-  lastCurrentHumidity = parseFloat(data.currentHumidity);
-  // timestamp is in milliseconds
-  lastCurrentHumidityTimestamp = parseInt(data.timestamp, 10);
-
-  wetHumidity = parseFloat(data.wetHumidity);
-  dryHumidity = parseFloat(data.dryHumidity);
+  lastCurrentHumidity = d.currentHumidity;
+  wetHumidity = d.wetHumidity;
+  dryHumidity = d.dryHumidity;
+  startTimeMs = d.timestamp;
 
   document.getElementById("dryHumidityInput").value = dryHumidity;
 
-  updateProgress(lastCurrentHumidity, lastCurrentHumidityTimestamp);
+  updateProgress(lastCurrentHumidity, startTimeMs);
 }
 
-// Initial load
-get(dataRef).then((snapshot) => {
-  handleData(snapshot.val());
-});
-
-// Listen to real-time changes
-onValue(dataRef, (snapshot) => {
-  handleData(snapshot.val());
-});
+get(dataRef).then(snap => handleData(snap.val()));
+onValue(dataRef, snap => handleData(snap.val()));
 </script>
 
 </body>
