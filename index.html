@@ -34,7 +34,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+import { getDatabase, ref, onValue, set, get } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
 // Firebase config
 const firebaseConfig = {
@@ -55,11 +55,12 @@ const dataRef = ref(db, "/"); // root
 let wetHumidity = null;
 let dryHumidity = null;
 let lastCurrentHumidity = null;
-let lastCurrentHumidityTimestamp = null; // seconds
+let lastCurrentHumidityTimestamp = null; // milliseconds
+let notified = false; // notification flag
 
-// Format seconds to Xd Yh Zm Ws
-function formatTimeSec(seconds) {
-  seconds = Math.floor(seconds);
+// Format milliseconds to Xd Yh Zm Ws
+function formatTimeMs(ms) {
+  let seconds = Math.floor(ms / 1000);
   const days = Math.floor(seconds / 86400);
   seconds %= 86400;
   const h = Math.floor(seconds / 3600);
@@ -73,17 +74,26 @@ function formatTimeSec(seconds) {
   return str;
 }
 
+// Request browser notification permission once
+if ("Notification" in window) {
+  Notification.requestPermission().then(permission => {
+    if (permission !== "granted") console.log("Notifications not allowed");
+  });
+}
+
 // Update progress bar and times
-function updateProgress(current, elapsedSec) {
+function updateProgress(current, elapsedMs) {
   if (wetHumidity === null || dryHumidity === null) return;
 
   const wet = parseFloat(wetHumidity);
   const dry = parseFloat(dryHumidity);
   const curr = parseFloat(current);
 
-  const clamped = Math.min(Math.max(curr, dry), wet);
+  // Clamp current between wet and dry
+  const clamped = Math.min(Math.max(curr, wet), dry);
 
-  let progress = ((wet - clamped) / (wet - dry)) * 100;
+  // Correct progress formula
+  let progress = ((clamped - wet) / (dry - wet)) * 100;
   progress = Math.min(Math.max(progress, 0), 100);
 
   const progressBar = document.getElementById("progress-bar");
@@ -92,14 +102,25 @@ function updateProgress(current, elapsedSec) {
 
   let remaining = "--";
   if (progress > 0 && progress < 100) {
-    const predictedTotalSec = elapsedSec / (progress / 100);
-    const remainingSec = Math.max(predictedTotalSec - elapsedSec, 0);
-    remaining = formatTimeSec(remainingSec);
+    const predictedTotalMs = elapsedMs / (progress / 100);
+    const remainingMs = Math.max(predictedTotalMs - elapsedMs, 0);
+    remaining = formatTimeMs(remainingMs);
   } else if (progress >= 100) {
     remaining = "Done!";
+    // Trigger notification once
+    if (Notification.permission === "granted" && !notified) {
+      new Notification("Clothes Drying Complete!", {
+        body: "Your clothes have reached the target humidity.",
+        icon: "/icon-192.png"
+      });
+      notified = true;
+    }
+  } else {
+    // reset notified if progress drops below 100%
+    notified = false;
   }
 
-  document.getElementById("timeElapsed").textContent = formatTimeSec(elapsedSec);
+  document.getElementById("timeElapsed").textContent = formatTimeMs(elapsedMs);
   document.getElementById("timeLeft").textContent = remaining;
 }
 
@@ -115,12 +136,14 @@ document.getElementById("applyBtn").addEventListener("click", () => {
   }
 });
 
-// Handle Firebase data
+// Function to update from Firebase snapshot
 function handleData(data) {
   if (!data || data.currentHumidity === undefined || data.wetHumidity === undefined || data.timestamp === undefined || data.dryHumidity === undefined) return;
 
   lastCurrentHumidity = parseFloat(data.currentHumidity);
-  lastCurrentHumidityTimestamp = parseInt(data.timestamp, 10); // seconds
+  // timestamp is in milliseconds
+  lastCurrentHumidityTimestamp = parseInt(data.timestamp, 10);
+
   wetHumidity = parseFloat(data.wetHumidity);
   dryHumidity = parseFloat(data.dryHumidity);
 
@@ -130,14 +153,14 @@ function handleData(data) {
 }
 
 // Initial load
-get(dataRef).then(snapshot => handleData(snapshot.val()));
+get(dataRef).then((snapshot) => {
+  handleData(snapshot.val());
+});
 
-// Poll Firebase every 15 minutes
-const POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
-setInterval(() => {
-  get(dataRef).then(snapshot => handleData(snapshot.val()));
-}, POLL_INTERVAL_MS);
-
+// Listen to real-time changes
+onValue(dataRef, (snapshot) => {
+  handleData(snapshot.val());
+});
 </script>
 
 </body>
