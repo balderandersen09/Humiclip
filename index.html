@@ -59,7 +59,7 @@ async function enablePush() {
   if (permission !== "granted") return;
 
   const token = await getToken(messaging, {
-    vapidKey: "YOUR_PUBLIC_VAPID_KEY_HERE"
+    vapidKey: "BKEraI1DDmgWFxxXWk_r-lEe_gN-81X5tJE79VwhuWBNChPun8rK4creYSuZbrQ8qVR8Bk56sB4PymF0E8srLdo"
   });
 
   console.log("Push Token:", token);
@@ -161,3 +161,4 @@ onValue(dataRef, snap => handleData(snap.val()));
 
 </body>
 </html>
+
