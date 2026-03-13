@@ -97,7 +97,7 @@ function formatTimeMs(ms) {
   return str;
 }
 
-function updateProgress(current, timestampMs) {
+function updateProgress(current) {
   if (wetHumidity === null || dryHumidity === null) return;
 
   const wet = parseFloat(wetHumidity);
@@ -113,7 +113,7 @@ function updateProgress(current, timestampMs) {
   bar.style.width = progress + "%";
   bar.textContent = progress.toFixed(1) + "%";
 
-  const elapsed = timestampMs - startTimeMs;
+  const elapsed = Date.now() - startTimeMs;
 
   let remaining = "--";
   if (progress > 0 && progress < 100) {
@@ -152,7 +152,7 @@ function handleData(d) {
 
   document.getElementById("dryHumidityInput").value = dryHumidity;
 
-  updateProgress(lastCurrentHumidity, startTimeMs);
+  updateProgress(lastCurrentHumidity);
 }
 
 get(dataRef).then(snap => handleData(snap.val()));
@@ -161,6 +161,7 @@ onValue(dataRef, snap => handleData(snap.val()));
 
 </body>
 </html>
+
 
 
 
