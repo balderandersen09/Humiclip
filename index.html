@@ -35,6 +35,8 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebas
 import { getDatabase, ref, onValue, set, get } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-messaging.js";
 
+let currentTimestamp = null;
+
 // Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyD2c-UOFZ0T6CfCxk1ZYyER6taMtKQnrK4",
@@ -148,11 +150,12 @@ function handleData(d) {
   lastCurrentHumidity = d.currentHumidity;
   wetHumidity = d.wetHumidity;
   dryHumidity = d.dryHumidity;
-  startTimeMs = d.timestamp;
-
+  startTimeMs = Number(d.timestamp);
+  currentTimestamp = Number(d.timestamp);
   document.getElementById("dryHumidityInput").value = dryHumidity;
 
   updateProgress(lastCurrentHumidity);
+  const elapsed = currentTimestamp - startTimeMs;
 }
 
 get(dataRef).then(snap => handleData(snap.val()));
@@ -161,6 +164,7 @@ onValue(dataRef, snap => handleData(snap.val()));
 
 </body>
 </html>
+
 
 
 
