@@ -115,7 +115,7 @@ function updateProgress(current) {
   bar.style.width = progress + "%";
   bar.textContent = progress.toFixed(1) + "%";
 
-  const elapsed = Date.now() - startTimeMs;
+  const elapsed = startTimeMs;
 
   let remaining = "--";
   if (progress > 0 && progress < 100) {
